@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Speech from 'expo-speech';
 import { generateStoryFromAPI } from '../../services/apiClient';
 
 type Culture = 'Anadolu' | 'İskandinav' | 'Uzak Doğu' | 'Klasik Avrupa';
@@ -29,6 +30,9 @@ function PillRow<T extends string>(props: {
   onChange: (v: T) => void;
 }) {
   const { label, options, value, onChange } = props;
+  
+  if (options.length === 0) return null; // Ses listesi boşsa gösterme
+  
   return (
     <View style={styles.card}>
       <Text style={styles.cardLabel}>{label}</Text>
@@ -67,6 +71,31 @@ export default function HomeScreen() {
   const [story, setStory] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Seslendirme State'leri
+  const [voices, setVoices] = useState<Speech.Voice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<string>('');
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Türkçe sesleri getir
+  useEffect(() => {
+    async function loadVoices() {
+      try {
+        const allVoices = await Speech.getAvailableVoicesAsync();
+        const trVoices = allVoices.filter(v => v.language.startsWith('tr'));
+        setVoices(trVoices);
+        
+        if (trVoices.length > 0) {
+          // iOS'ta Yelda varsa onu seç, yoksa kalitesi en yüksek olanı bulmaya çalış
+          const premiumVoice = trVoices.find(v => v.quality === Speech.VoiceQuality.Enhanced) || trVoices[0];
+          setSelectedVoice(premiumVoice.identifier);
+        }
+      } catch (err) {
+        console.warn('Sesler yüklenirken hata oluştu:', err);
+      }
+    }
+    loadVoices();
+  }, []);
+
   const canGenerate = useMemo(() => !isLoading, [isLoading]);
 
   const onGenerate = async () => {
@@ -74,6 +103,8 @@ export default function HomeScreen() {
     setIsLoading(true);
     setStory(null);
     setError(null);
+    stopStory(); // Varsa çalan sesi durdur
+
     try {
       const text = await generateStoryFromAPI({ culture, ageGroup, atmosphere, specialRequest });
       setStory(text);
@@ -83,6 +114,29 @@ export default function HomeScreen() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const playStory = () => {
+    if (!story) return;
+    
+    // Her ihtimale karşı önce durdur
+    Speech.stop();
+    setIsPlaying(true);
+    
+    Speech.speak(story, {
+      language: 'tr-TR',
+      voice: selectedVoice || undefined,
+      pitch: 1.1, // Sesi biraz çocuksu/ince yapmak için
+      rate: 0.9,  // Daha masalsı bir hız
+      onDone: () => setIsPlaying(false),
+      onStopped: () => setIsPlaying(false),
+      onError: () => setIsPlaying(false),
+    });
+  };
+
+  const stopStory = () => {
+    Speech.stop();
+    setIsPlaying(false);
   };
 
   return (
@@ -101,6 +155,21 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.headerSubtitle}>Çocuklar için renkli, ebeveynler için rahat.</Text>
           </View>
+
+          {voices.length > 0 && (
+            <>
+              <PillRow<string>
+                label="Masalcı Sesi"
+                options={voices.map(v => v.name)}
+                value={voices.find(v => v.identifier === selectedVoice)?.name || ''}
+                onChange={(name) => {
+                  const v = voices.find(v => v.name === name);
+                  if (v) setSelectedVoice(v.identifier);
+                }}
+              />
+              <View style={styles.spacer} />
+            </>
+          )}
 
           <PillRow<Culture> label="Kültür" options={CULTURES} value={culture} onChange={setCulture} />
           <View style={styles.spacer} />
@@ -189,6 +258,22 @@ export default function HomeScreen() {
                 </Text>
               </ScrollView>
             )}
+
+            {/* OYNATMA KONTROLLERİ */}
+            {story && !error && (
+              <View style={styles.playerControls}>
+                {isPlaying ? (
+                  <Pressable style={[styles.playButton, styles.stopButton]} onPress={stopStory}>
+                    <Text style={styles.playButtonText}>⏹️ Dinlemeyi Durdur</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable style={styles.playButton} onPress={playStory}>
+                    <Text style={styles.playButtonText}>▶️ Masalı Dinle</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
           </View>
 
           <View style={{ height: 24 }} />
@@ -397,5 +482,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 20,
+  },
+  playerControls: {
+    marginTop: 16,
+  },
+  playButton: {
+    backgroundColor: 'rgba(50, 200, 150, 0.25)',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(50, 200, 150, 0.7)',
+    alignItems: 'center',
+  },
+  stopButton: {
+    backgroundColor: 'rgba(255, 100, 100, 0.2)',
+    borderColor: 'rgba(255, 100, 100, 0.7)',
+  },
+  playButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
