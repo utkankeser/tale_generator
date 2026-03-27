@@ -24,7 +24,9 @@
       "output": "static"
     },
     "extra": {
-      "BACKEND_URL": "http://localhost:3001"
+      "BACKEND_URL": "http://localhost:3001",
+      "SUPABASE_URL": "buraya_supabase_url_yaz",
+      "SUPABASE_ANON_KEY": "buraya_anon_public_key_yaz"
     }
   }
 }
